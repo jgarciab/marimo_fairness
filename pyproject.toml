@@ -1,0 +1,7 @@
+[project]
+name = "marimo-fairness"
+version = "0.1.0"
+description = "Fairness teaching app: which error, compared with whom, and what closing the gap costs"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["marimo==0.23.0"]
