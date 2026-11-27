@@ -26,21 +26,21 @@ metadata for `uvx marimo run --sandbox app.py`).
 
 ## On the page
 
-1. **Cut-offs and confusion matrices.** One slider per group; everyone with a score
-   at or above the cut-off is flagged.
-2. **Bars per group:** selection rate (independence), FPR and FNR (separation),
-   FDR and FOR (sufficiency), and balanced accuracy, with the gap between groups.
-3. **Step 1 · Numerator:** false positives or false negatives, each with what it means
-   in a punitive and an assistive use. Bars that don't count that error fade out.
-4. **Step 2 · Denominator:** equal chance of being misjudged (condition on the true
-   outcome) or equal reliability of the label (condition on the prediction). One
-   metric remains; the confusion matrices outline its numerator and fade everyone
-   outside its denominator.
-5. **Step 3 · Pareto plot:** every pair of cut-offs as a point (gap in the chosen
+1. **Sidebar:** the data source, one cut-off slider per group (everyone with a score
+   at or above the cut-off is flagged), Step 1 · Numerator (false positives or false
+   negatives, with what each means in a punitive and an assistive use) and Step 2 ·
+   Denominator (equal chance of being misjudged, or equal reliability of the label).
+2. **Confusion matrices** per group, next to **bars per group**: selection rate
+   (independence), FPR and FNR (separation), FDR and FOR (sufficiency), and balanced
+   accuracy, with the gap between groups. Both update as you move the sliders.
+3. Once both steps are picked, one metric remains: its row is highlighted, bars that
+   don't count that error fade out, and the confusion matrices outline its numerator
+   and fade everyone outside its denominator.
+4. **Step 3 · Pareto plot:** every pair of cut-offs as a point (gap in the chosen
    metric vs balanced accuracy of both groups), the Pareto front labelled with its
-   cut-offs, and the same-cut-off pairs. Hovering over a point shows its cut-offs,
-   gap and balanced accuracy.
-6. **Why can't you have it all?** Chouldechova's (2017) identity, checked live:
+   cut-offs, and the same-cut-off pairs. A ring marks the sliders' pair. Hovering
+   over a point shows its cut-offs, gap and balanced accuracy.
+5. **Why can't you have it all?** Chouldechova's (2017) identity, checked live:
    FPR = p/(1−p) · FDR/(1−FDR) · (1−FNR).
 
 With COMPAS, equalising FPR costs about 1 point of balanced accuracy (4/6) and

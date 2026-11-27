@@ -6,7 +6,7 @@
 import marimo
 
 __generated_with = "0.23.0"
-app = marimo.App(width="medium", app_title="Fairness: which error, compared with whom?")
+app = marimo.App(width="full", app_title="Fairness: which error, compared with whom?")
 
 
 @app.cell
@@ -168,13 +168,10 @@ def helpers():
 @app.cell
 def controls(mo):
     source = mo.ui.radio({"COMPAS (ProPublica)": "compas", "Upload your own CSV": "upload"},
-                         value="COMPAS (ProPublica)", inline=True, label="**Data**")
+                         value="COMPAS (ProPublica)")
     upload = mo.ui.file(filetypes=[".csv"], multiple=False, max_size=8_000_000, label="Choose a CSV")
-    numerator = mo.ui.radio({
-        "False positives: flagged, but the outcome did not happen. Punitive use: an innocent person is "
-        "detained. Assistive use: support goes to someone who did not need it.": "FP",
-        "False negatives: not flagged, but the outcome happened. Punitive use: someone who is later "
-        "rearrested is released. Assistive use: someone who needed support gets none.": "FN"}, value=None)
+    numerator = mo.ui.radio({"False positives: flagged, but the outcome did not happen": "FP",
+                             "False negatives: not flagged, but the outcome happened": "FN"}, value=None)
     denominator = mo.ui.radio({"Equal chance of being misjudged: compare people with the same true outcome": "truth",
                                "Equal reliability of the label: compare people with the same prediction": "label"},
                               value=None)
@@ -252,10 +249,10 @@ def dataset(COMPAS, build, compas_rows, group_a, group_b, group_column, label_co
 
 
 @app.cell
-def cutoffs(data, mo):
+def cutoffs(GROUP_COLORS, data, mo):
     sliders = mo.ui.dictionary({g: mo.ui.slider(steps=data["cuts"], value=data["default"], show_value=True,
-                                                label=f"**{g}**: flag if score ≥")
-                                for g in data["names"]})
+                                                full_width=True, label=f"<span style='color:{c}'>■</span> **{g}**")
+                                for g, c in zip(data["names"], GROUP_COLORS)})
     return (sliders,)
 
 
@@ -267,10 +264,28 @@ def choice(denominator, numerator):
 
 
 @app.cell
+def sidebar(METRICS, chosen, denominator, mo, numerator, sliders, source):
+    _spec = next((m for m in METRICS if m["key"] == chosen), None)
+    mo.sidebar([
+        mo.md("### Data"), source,
+        mo.md("### Cut-offs\nFlag everyone with a score at or above:"), sliders.vstack(gap=0.5),
+        mo.md("### Step 1 · Numerator\nWhich error matters most?"), numerator,
+        mo.md("<small>**Detention** (punitive): a false positive detains someone who would not be "
+              "rearrested; a false negative releases someone who is. **Support programme** (assistive): a false positive helps someone "
+              "who did not need it; a false negative leaves someone without help.</small>"),
+        mo.md("### Step 2 · Denominator\nWhose risk do you compare?"), denominator,
+        mo.md(f"**→ You compare {_spec['key'].rstrip('_').upper()}** ({_spec['crit'].lower()}):  \n"
+              f"${_spec['eq']}$") if _spec else
+        mo.md("*Pick both steps to choose one metric.*"),
+    ], width="340px")
+    return
+
+
+@app.cell
 def header(data, data_error, example_csv, group_a, group_b, group_column, label_column, mo,
            positive_label, score_column, source, upload):
     _items = [mo.md("# Fairness: which error, compared with whom?\n\n"
-                    "*Javier Garcia-Bernardo · Utrecht University & ODISSEI SoDa*"), source]
+                    "*Javier Garcia-Bernardo · Utrecht University & ODISSEI SoDa*"), mo.md(data["intro"])]
     if source.value == "upload":
         _items += [
             mo.md("One row per person: a group, the observed outcome (two values) and a score where higher means "
@@ -282,7 +297,6 @@ def header(data, data_error, example_csv, group_a, group_b, group_column, label_
         ]
         if data_error:
             _items.append(mo.callout(mo.md(f"{data_error} Showing COMPAS until this is fixed."), kind="warn"))
-    _items.append(mo.md(data["intro"]))
     mo.vstack(_items)
     return
 
@@ -290,7 +304,7 @@ def header(data, data_error, example_csv, group_a, group_b, group_column, label_
 @app.cell
 def tasks(data, mo):
     mo.callout(mo.md("""
-    **Tasks (15 min, in pairs)**
+    **Tasks.** Set the cut-offs and steps 1–2 in the sidebar; the matrices and bars below update as you go.
 
     1. Keep both cut-offs at **5** (ProPublica's "medium or high risk"). On which metrics do the groups
        differ? Is the model fair?
@@ -299,63 +313,58 @@ def tasks(data, mo):
        with the same label. Pick one, then move the cut-offs until the gap closes. What happens to the other bars?
     4. **Step 3 · Pareto.** How much balanced accuracy does closing the gap cost? Is "the same cut-off for
        everyone" a good rule?
-    5. Now suppose the score decides who is offered a support programme. Redo steps 1–3. Would you allow
-       different cut-offs per group? Who should decide?
     """), kind="info") if data["kind"] == "compas" else None
     return
 
 
 @app.cell
-def matrices(METRICS, chosen, data, mo, rates, sliders):
-    _spec = next((m for m in METRICS if m["key"] == chosen), None)
+def dashboard(GROUP_COLORS, METRICS, TOL, chosen, data, denominator, mo, numerator, rates, sliders):
+    _a, _b = data["names"]
+    _r = {g: rates(data["cm"][g][sliders.value[g]]) for g in data["names"]}
     _w = data["words"]
+    _color = dict(zip(data["names"], GROUP_COLORS))
+    _spec = next((m for m in METRICS if m["key"] == chosen), None)
+
+    def _swatch(g):
+        return (f"<span style='display:inline-block;width:11px;height:11px;border-radius:2px;"
+                f"background:{_color[g]};margin-right:6px'></span>")
 
     def _matrix(g):
         c = data["cm"][g][sliders.value[g]]
 
         def cell(k, correct):
             bg, fg = ("#00628b", "white") if correct else ("#ff8080", "#222")
-            style = f"background:{bg};color:{fg};padding:10px 16px;text-align:center"
+            style = f"background:{bg};color:{fg};padding:6px 12px;text-align:center;min-width:72px;border-radius:3px"
             if _spec and k not in _spec["den"]:
                 style += ";opacity:0.2"
             if _spec and k in _spec["num"]:
                 style += ";outline:3px solid black;outline-offset:-3px"
-            return f"<td style='{style}'>{k.upper()}<br><b>{c[k]:,}</b></td>"
+            return f"<td style='{style}'><small>{k.upper()}</small><br><b>{c[k]:,}</b></td>"
 
-        return (f"<div><p><b>{g}</b> · {_w['pos']}: {rates(c)['base']:.0%}</p>"
-                "<table style='border-collapse:separate;border-spacing:4px'>"
-                "<tr><th></th><th>Flagged</th><th>Not flagged</th></tr>"
-                f"<tr><th>{_w['pos'].capitalize()}</th>{cell('tp', True)}{cell('fn', False)}</tr>"
-                f"<tr><th>{_w['neg'].capitalize()}</th>{cell('fp', False)}{cell('tn', True)}</tr></table></div>")
+        th = "style='text-align:right;font-weight:normal;padding-right:6px'"
+        return (f"<div style='margin-bottom:16px'><div style='margin-bottom:4px'>{_swatch(g)}<b>{g}</b> "
+                f"<span style='color:#666'>· score ≥ {sliders.value[g]:g} · {_w['pos']}: {_r[g]['base']:.0%}</span></div>"
+                "<table style='border-collapse:separate;border-spacing:3px'>"
+                "<tr><th></th><th style='font-weight:normal'>Flagged</th><th style='font-weight:normal'>Not flagged</th></tr>"
+                f"<tr><th {th}>{_w['pos'].capitalize()}</th>{cell('tp', True)}{cell('fn', False)}</tr>"
+                f"<tr><th {th}>{_w['neg'].capitalize()}</th>{cell('fp', False)}{cell('tn', True)}</tr></table></div>")
 
-    mo.vstack([
-        mo.md("## Your cut-offs"),
-        sliders.hstack(justify="space-around", wrap=True),
-        mo.Html("<div style='display:flex;flex-wrap:wrap;justify-content:space-around;gap:1em'>"
-                + "".join(_matrix(g) for g in data["names"]) + "</div>"),
-        mo.md("**Outlined:** the error you count (numerator). **Faded:** people outside the group you compare "
-              "(denominator).") if _spec else mo.md(""),
-    ])
-    return
-
-
-@app.cell
-def bars(GROUP_COLORS, METRICS, TOL, chosen, data, denominator, mo, numerator, rates, sliders):
-    _a, _b = data["names"]
-    _r = {g: rates(data["cm"][g][sliders.value[g]]) for g in data["names"]}
-    _w = data["words"]
-    _q = dict(sel=f"Share {_w['flag']}", fpr=f"{_w['neg']}, but {_w['flag']} · <b>FPR</b>",
-              fnr=f"{_w['pos']}, but not flagged · <b>FNR</b>", fdr=f"{_w['flag']}, but {_w['neg']} · <b>FDR</b>",
-              for_=f"not flagged, but {_w['pos']} · <b>FOR</b>", ba="Balanced accuracy")
+    _name = dict(sel="Selection rate", fpr="FPR", fnr="FNR", fdr="FDR", for_="FOR", ba="Balanced accuracy")
+    _q = dict(sel=f"Share {_w['flag']}", fpr=f"{_w['neg']}, but {_w['flag']}", fnr=f"{_w['pos']}, but not flagged",
+              fdr=f"{_w['flag']}, but {_w['neg']}", for_=f"not flagged, but {_w['pos']}",
+              ba="Accuracy, weighting both outcomes equally")
 
     def _solid(m):
         return m["key"] == "ba" or (numerator.value in (None, m["err"]) and denominator.value in (None, m["cond"]))
 
-    def _bar(v, color, digits):
+    def _bar(g, k):
+        v = _r[g][k]
         if v != v:
-            return "<small>–</small>"
-        return ("<div style='display:flex;align-items:center;gap:6px;margin:3px 0'>"
-                f"<span style='background:{color};height:12px;width:{v * 200:.0f}px'></span><small>{v:.{digits}%}</small></div>")
+            return "<div style='margin:3px 0'><small>–</small></div>"
+        return (f"<div title='{g}: {v:.1%}' style='display:flex;align-items:center;gap:6px;margin:3px 0'>"
+                "<div style='flex:0 0 150px;height:12px;background:#eceff1;border-radius:2px'>"
+                f"<div style='width:{100 * v:.1f}%;height:100%;background:{_color[g]};border-radius:0 4px 4px 0'></div>"
+                f"</div><small style='font-variant-numeric:tabular-nums'>{v:.{1 if k == 'ba' else 0}%}</small></div>")
 
     def _gap(k):
         x, y = _r[_a][k], _r[_b][k]
@@ -365,35 +374,31 @@ def bars(GROUP_COLORS, METRICS, TOL, chosen, data, denominator, mo, numerator, r
 
     def _row(m):
         k = m["key"]
-        style = f"opacity:{1 if _solid(m) else 0.25}" + (";background:#fff3c4" if k == chosen else "")
-        question = _q[k][0].upper() + _q[k][1:]
-        return (f"<tr style='{style}'><td><small>{m['crit']}</small></td>"
-                f"<td>{question}<br><code>{m['formula']}</code></td>"
-                f"<td>{_bar(_r[_a][k], GROUP_COLORS[0], 1 if k == 'ba' else 0)}"
-                f"{_bar(_r[_b][k], GROUP_COLORS[1], 1 if k == 'ba' else 0)}</td>"
-                f"<td style='text-align:center;white-space:nowrap'>{_gap(k)}</td></tr>")
+        style = (f"opacity:{1 if _solid(m) else 0.25};border-top:1px solid #e5e7eb"
+                 + (";background:#fff3c4" if k == chosen else ""))
+        return (f"<tr style='{style}'>"
+                f"<td style='padding:6px 12px 6px 6px'><b>{_name[k]}</b> &nbsp;<code style='font-size:0.8em'>"
+                f"{m['formula']}</code><br><small style='color:#555'>{_q[k][0].upper() + _q[k][1:]}</small></td>"
+                f"<td style='padding:6px 12px'>{_bar(_a, k)}{_bar(_b, k)}</td>"
+                f"<td style='padding:6px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums'>{_gap(k)}</td></tr>")
 
-    _legend = " &nbsp; ".join(f"<span style='background:{c};padding:0 9px'>&nbsp;</span> {g}"
-                             for g, c in zip(data["names"], GROUP_COLORS))
-    _chart = mo.Html(
-        f"<p>{_legend}</p><table style='border-collapse:collapse'>"
-        "<tr><th>Criterion</th><th>Question</th><th>Per group</th><th>Gap</th></tr>"
-        + "".join(_row(m) for m in METRICS) + f"</table><p><small>✅ = within {100 * TOL:.0f} percentage points. "
-        "Balanced accuracy = 1 − (FPR + FNR) / 2.</small></p>")
+    def _crit(m):  # one small header row per fairness criterion
+        return ("<tr><td colspan='3' style='padding:12px 6px 2px;font-size:0.72em;letter-spacing:0.06em;"
+                f"text-transform:uppercase;color:#888'>{m['crit']}</td></tr>")
 
-    _spec = next((m for m in METRICS if m["key"] == chosen), None)
-    _summary = mo.md(
-        f"**You compare {_spec['key'].rstrip('_').upper()}:** ${_spec['eq']}$  \n"
-        f"{_a} {_r[_a][chosen]:.0%} vs {_b} {_r[_b][chosen]:.0%}. "
-        f"This is part of **{_spec['crit'].lower()}**." if _spec else
-        "*Pick both steps to choose one metric.*")
-    _steps = mo.vstack([
-        mo.md("### Step 1 · Numerator\nWhich error matters most?"), numerator,
-        mo.md("### Step 2 · Denominator\nWhose risk do you compare?"), denominator,
-        mo.md("---"), _summary,
-    ])
-    mo.vstack([mo.md("## Which error, compared with whom?"),
-               mo.hstack([_steps, _chart], widths=[1, 2], gap=2, align="start", wrap=True)])
+    _legend = " &nbsp; ".join(f"{_swatch(g)}{g}" for g in data["names"])
+    _chart = (f"<p>{_legend}</p><table style='border-collapse:collapse;width:100%'>"
+              + "".join((_crit(m) if i == 0 or m["crit"] != METRICS[i - 1]["crit"] else "") + _row(m)
+                        for i, m in enumerate(METRICS))
+              + f"</table><p><small>Gap = {_b} − {_a}; ✅ = within {100 * TOL:.0f} percentage points. "
+              "Balanced accuracy = 1 − (FPR + FNR) / 2.</small></p>")
+    _note = (mo.md("<small>**Outlined:** the error you count (numerator). **Faded:** people outside the group you "
+                   "compare (denominator).</small>").style({"max-width": "330px"}) if _spec else mo.md(""))
+
+    mo.hstack([
+        mo.vstack([mo.md("### Confusion matrices"), mo.Html("".join(_matrix(g) for g in data["names"])), _note]),
+        mo.vstack([mo.md("### Metrics per group"), mo.Html(_chart)]),
+    ], widths=[1, 1.7], align="start", gap=3)
     return
 
 
@@ -474,7 +479,7 @@ def pareto_view(chosen, data, mo, pair_points, pareto, sliders):
 
     _items = [mo.md("## Step 3 · What does closing the gap cost?")]
     if chosen is None:
-        _items.append(mo.md("*Choose steps 1 and 2 first.*"))
+        _items.append(mo.md("*Choose steps 1 and 2 in the sidebar first.*"))
     else:
         _abbr = chosen.rstrip("_").upper()
         _pts = pair_points(data, chosen)
@@ -487,8 +492,7 @@ def pareto_view(chosen, data, mo, pair_points, pareto, sliders):
         _items += [
             mo.md(f"Each dot is one pair of cut-offs. Left means a smaller gap in {_abbr}; up means more accurate. "
                   "The **Pareto front** holds the pairs where you cannot shrink the gap without losing accuracy. "
-                  "Hover over a dot to see its cut-offs."),
-            sliders.hstack(justify="space-around", wrap=True),
+                  "Hover over a dot to see its cut-offs. The black ring follows the sliders in the sidebar."),
             mo.Html(f"<p>{_legend}</p>" + _svg(_pts, pareto(_pts), _same, _cur, _abbr)),
         ]
     mo.vstack(_items)
